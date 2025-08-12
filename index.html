@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>SPORE - Advanced Gene Pathfinding (Extreme)</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>SPORE — Advanced Gene Pathfinding (Extreme)</h1>
+    <h2 id="levelTitle"></h2>
+    <p id="instruction">Select the shortest path from start → end</p>
+  </header>
+
+  <main>
+    <div id="network-wrap">
+      <svg id="graph" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="10" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L9,3 z" fill="#999" />
+          </marker>
+        </defs>
+      </svg>
+    </div>
+
+    <div id="controls">
+      <button id="submitBtn">Submit Path</button>
+      <button id="resetBtn">Reset</button>
+      <button id="showPathBtn" style="display:none;">👀 Show Shortest Path</button>
+      <button id="nextLevelBtn" style="display:none;">➡ Next Level</button>
+      <button id="restartBtn" style="display:none;">⟲ Restart</button>
+    </div>
+
+    <footer>
+      <small>Levels 0–6: Extreme difficulty. Any valid shortest path is accepted.</small>
+    </footer>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
