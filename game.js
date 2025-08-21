@@ -1,5 +1,6 @@
-// game.js — SPORE Extreme (Levels 0–6, dense/decoy graphs, BFS shortest-path acceptance)
+// game.js — SPORE Extreme (Levels 0–6, dense/decoy graphs, BFS shortest-path acceptance + curved UX)
 
+// --- DOM refs ---
 const svg = document.getElementById("graph");
 const levelTitle = document.getElementById("levelTitle");
 const instruction = document.getElementById("instruction");
@@ -36,15 +37,15 @@ const levels = [
       // decoys & cross ties
       ['B','E'],['C','E'],['D','H'],['F','I'],['G','L'],['J','N'],['K','M'],
       ['E','I'],['I','P'],['H','M'],['Q','Z']
-    ]
+    ],
+    // Level 0 stays mostly straight for clarity
+    curvedEdges: []
   },
 
   // Level 1 — grid with diagonals + traps
   {
     name: "Level 1 — Grid Ambush",
-    start: "A", end: "Y",
     nodes: (()=>{
-      // 4x4 irregular grid A..P, plus Q..Y extra ring
       const nodes = {};
       const letters = "ABCDEFGHIJKLMNOP";
       let idx=0;
@@ -62,7 +63,6 @@ const levels = [
     })(),
     edges: (()=> {
       const edges = [];
-      // connect grid neighbors and diagonals
       const letters = "ABCDEFGHIJKLMNOP";
       const get = (r,c)=> letters[r*4+c];
       for(let r=0;r<4;r++){
@@ -74,17 +74,22 @@ const levels = [
           if(r<3 && c>0) edges.push([u, get(r+1,c-1)]);
         }
       }
-      // connect to outer ring with many cross links (decoys)
       edges.push(['A','Q'],['B','R'],['C','S'],['D','T']);
       edges.push(['M','U'],['N','V'],['O','W'],['P','X']);
-      // cross shortcuts and traps
       edges.push(['E','K'],['F','L'],['G','I'],['H','J'],['I','Q'],['L','S'],['P','Y']);
-      // some ring connections
       edges.push(['Q','R'],['R','S'],['S','T'],['T','U'],['U','V'],['V','W'],['W','X'],['X','Q']);
       return edges;
     })(),
     start: 'A',
-    end: 'Y'
+    end: 'Y',
+    // Curve some ring and diagonal connectors to reduce visual collisions
+    curvedEdges: (() => {
+      const c = [];
+      const ring = [['Q','R'],['R','S'],['S','T'],['T','U'],['U','V'],['V','W'],['W','X'],['X','Q']];
+      ring.forEach(p=>c.push({u:p[0],v:p[1],offset:28}));
+      c.push({u:'I',v:'Q',offset:26},{u:'L',v:'S',offset:-26},{u:'P',v:'Y',offset:20});
+      return c;
+    })()
   },
 
   // Level 2 — tangled ladder with many crossbars
@@ -93,7 +98,6 @@ const levels = [
     start: "START", end: "END",
     nodes: (()=>{
       const nodes = {};
-      // vertical ladder S0..S7 on left, T0..T7 on right, middle hubs M0..M3
       for(let i=0;i<8;i++){
         nodes['L'+i] = { x:120, y:80 + i*75 };
         nodes['R'+i] = { x:480, y:60 + i*75 + (i%2?12:-12) };
@@ -107,12 +111,10 @@ const levels = [
     })(),
     edges: (()=>{
       const e = [];
-      // ladder steps
       for(let i=0;i<7;i++){
         e.push(['L'+i,'L'+(i+1)]);
         e.push(['R'+i,'R'+(i+1)]);
       }
-      // horizontal rungs & many cross links
       for(let i=0;i<8;i++){
         e.push(['L'+i,'R'+i]); // rung
         if(i<7){
@@ -122,11 +124,25 @@ const levels = [
         if(i%2===0) e.push(['L'+i,'M'+(i/2)]);
         if(i%2===1) e.push(['R'+i,'M'+((i-1)/2)]);
       }
-      // start & end attachments
       e.push(['START','L0'],['R7','END'],['M0','M1'],['M1','M2'],['M2','M3'],['M3','END']);
-      // extra traps & loops
       e.push(['L2','L5'],['R1','R6'],['L3','R4'],['L4','M2'],['M1','R5']);
       return e;
+    })(),
+    // Curve most rungs & cross-bars to separate them visually
+    curvedEdges: (()=>{
+      const curves = [];
+      for(let i=0;i<8;i++){
+        curves.push({u:'L'+i,v:'R'+i,offset:24*(i%2?1:-1)});           // rungs
+        if(i<7){
+          curves.push({u:'L'+i,v:'R'+(i+1),offset:22});
+          curves.push({u:'R'+i,v:'L'+(i+1),offset:-22});
+        }
+      }
+      // hub links
+      curves.push({u:'M0',v:'M1',offset:18},{u:'M1',v:'M2',offset:-18},{u:'M2',v:'M3',offset:18});
+      // extra tricky ones
+      curves.push({u:'L3',v:'R4',offset:-26},{u:'M1',v:'R5',offset:26});
+      return curves;
     })()
   },
 
@@ -136,35 +152,43 @@ const levels = [
     start: "A0", end: "Z9",
     nodes: (()=>{
       const nodes = {};
-      // central hubs H0..H3
       for(let h=0;h<4;h++) nodes['H'+h] = { x:360 + h*140, y:260 + (h%2?40:-40) };
-      // spokes A0..A7 and B0..B7 around hubs
       for(let i=0;i<8;i++){
         nodes['A'+i] = { x:80 + i*120, y:60 + (i%3)*40 + (i%2?20:-20) };
         nodes['B'+i] = { x:80 + i*120, y:520 - (i%3)*40 + (i%2?-20:20) };
       }
-      // goal
       nodes['Z9'] = { x:1100, y:320 };
       return nodes;
     })(),
     edges: (()=>{
       const e=[];
-      // connect spokes to multiple hubs (dense)
       for(let i=0;i<8;i++){
         e.push(['A'+i,'H'+(i%4)]);
         e.push(['A'+i,'H'+((i+1)%4)]);
         e.push(['B'+i,'H'+(i%4)]);
         e.push(['B'+i,'H'+((i+3)%4)]);
       }
-      // connect hubs in a near-complete mesh
       e.push(['H0','H1'],['H0','H2'],['H0','H3'],['H1','H2'],['H1','H3'],['H2','H3']);
-      // connect some spokes between each other to make loops
       for(let i=0;i<7;i++){
         e.push(['A'+i,'A'+(i+1)], ['B'+i,'B'+(i+1)]);
       }
-      // several random cross edges forming decoys
       e.push(['A1','B5'],['A2','B2'],['A3','A7'],['B0','H1'],['A5','H3'],['H2','Z9'],['B7','Z9']);
       return e;
+    })(),
+    // Curve hub–hub mesh and some hub–spoke ties to declutter
+    curvedEdges: (()=>{
+      const c=[];
+      // hub mesh
+      [['H0','H1',22],['H0','H2',-26],['H0','H3',24],['H1','H2',18],['H1','H3',-22],['H2','H3',20]]
+        .forEach(([u,v,o])=>c.push({u,v,offset:o}));
+      // spokes to hubs (alternate)
+      for(let i=0;i<8;i++){
+        c.push({u:'A'+i,v:'H'+(i%4),offset:(i%2?18:-18)});
+        c.push({u:'B'+i,v:'H'+((i+3)%4),offset:(i%2?-18:18)});
+      }
+      // two goal lines
+      c.push({u:'H2',v:'Z9',offset:-20},{u:'B7',v:'Z9',offset:20});
+      return c;
     })()
   },
 
@@ -174,30 +198,37 @@ const levels = [
     start: "S", end: "G",
     nodes: (()=>{
       const nodes = {};
-      // top layer T0..T5
       for(let i=0;i<6;i++) nodes['T'+i] = { x:80 + i*180, y:80 + ((i%2)?12:-12) };
-      // mid layer M0..M5
       for(let i=0;i<6;i++) nodes['M'+i] = { x:80 + i*180, y:260 + ((i%2)?-10:10) };
-      // bottom layer B0..B5
       for(let i=0;i<6;i++) nodes['B'+i] = { x:80 + i*180, y:440 + ((i%2)?14:-14) };
       nodes['S'] = {x:20,y:60}; nodes['G'] = {x:1100,y:360};
       return nodes;
     })(),
     edges: (()=>{
       const e=[];
-      // full horizontal connects with diagonals (dense mesh)
       for(let row of ['T','M','B']){
         for(let i=0;i<5;i++) e.push([row+i, row+(i+1)]);
       }
-      // vertical and cross links
       for(let i=0;i<6;i++){
         e.push(['T'+i,'M'+i], ['M'+i,'B'+i], ['T'+i,'M'+((i+1)%6)], ['M'+i,'B'+((i+5)%6)]);
       }
-      // cross-level diagonals and loops
       e.push(['T0','M2'],['T1','B3'],['M2','B4'],['T3','M5'],['M1','B0'],['B5','G'],['S','T0'],['T5','G']);
-      // extra inner mesh
       e.push(['M0','M2'],['M1','M3'],['M2','M4'],['M3','M5']);
       return e;
+    })(),
+    // Curve horizontal lanes and a few diagonals for readability
+    curvedEdges: (()=>{
+      const c=[];
+      // horizontal lanes
+      for(let i=0;i<5;i++){
+        c.push({u:'T'+i,v:'T'+(i+1),offset:18*(i%2?1:-1)});
+        c.push({u:'M'+i,v:'M'+(i+1),offset:-14*(i%2?1:-1)});
+        c.push({u:'B'+i,v:'B'+(i+1),offset:16*(i%2?-1:1)});
+      }
+      // diagonals & exits
+      [['T0','M2',22],['T1','B3',-26],['M2','B4',22],['T3','M5',-20],['M1','B0',20],['B5','G',22],['T5','G',-22]]
+        .forEach(([u,v,o])=>c.push({u,v,offset:o}));
+      return c;
     })()
   },
 
@@ -207,12 +238,10 @@ const levels = [
     start: "Start", end: "Goal",
     nodes: (()=>{
       const nodes = {};
-      // ring of 12 nodes R0..R11
       for(let i=0;i<12;i++){
         const a = Math.PI * 2 * i / 12;
         nodes['R'+i] = { x:600 + Math.round(Math.cos(a)*420), y:350 + Math.round(Math.sin(a)*220) };
       }
-      // inner core C0..C5
       for(let i=0;i<6;i++){
         const a = Math.PI * 2 * i / 6;
         nodes['C'+i] = { x:600 + Math.round(Math.cos(a)*160), y:350 + Math.round(Math.sin(a)*90) };
@@ -222,21 +251,28 @@ const levels = [
     })(),
     edges: (()=>{
       const e=[];
-      // ring connections
       for(let i=0;i<12;i++){
         e.push(['R'+i, 'R'+((i+1)%12)]);
-        // spokes to core nodes (2-to-1)
         e.push(['R'+i, 'C'+(i%6)]);
       }
-      // core full mesh
       for(let i=0;i<6;i++){
         for(let j=i+1;j<6;j++) e.push(['C'+i,'C'+j]);
       }
-      // connect start and goal into ring at multiple points (decoy symmetry)
       e.push(['Start','R0'],['Start','R3'],['Start','R5'],['Goal','R6'],['Goal','R9'],['Goal','R11']);
-      // add some cross-links across ring to create many equal-length routes
       e.push(['R1','R7'],['R2','R8'],['R4','R10'],['R3','R9']);
       return e;
+    })(),
+    // Curve ring segments around the ellipse + a few long chords
+    curvedEdges: (()=>{
+      const c=[];
+      for(let i=0;i<12;i++){
+        c.push({u:'R'+i, v:'R'+((i+1)%12), offset:28}); // ring arc feel
+      }
+      [['R1','R7',-18],['R2','R8',18],['R4','R10',-18],['R3','R9',18]].forEach(([u,v,o])=>c.push({u,v,offset:o}));
+      // gentle curves from Start/Goal into ring
+      [['Start','R0',16],['Start','R3',-16],['Start','R5',16],['Goal','R6',-16],['Goal','R9',16],['Goal','R11',-16]]
+        .forEach(([u,v,o])=>c.push({u,v,offset:o}));
+      return c;
     })()
   },
 
@@ -246,41 +282,201 @@ const levels = [
     start: "A", end: "Z",
     nodes: (()=>{
       const nodes = {};
-      // create 18 nodes N0..N17 positioned irregularly
       for(let i=0;i<18;i++){
         nodes['N'+i] = { x:80 + (i%6)*180 + (i%2?22:-22), y:80 + Math.floor(i/6)*220 + (i%3?12:-12) };
       }
-      // add start A at left, end Z at far right
       nodes['A'] = {x:20,y:220}; nodes['Z'] = {x:1160,y:360};
       return nodes;
     })(),
     edges: (()=>{
       const e=[];
-      // near-complete connections among N0..N17 (but omit a few to make hard)
       for(let i=0;i<18;i++){
         for(let j=i+1;j<18;j++){
-          // omit some edges to create pockets: skip if (i+j)%7==0 to add subtle sparse cuts
           if(((i+j) % 7) !== 0) e.push(['N'+i,'N'+j]);
         }
       }
-      // connect A to a selection of nodes (not all) — bottleneck choices
       e.push(['A','N0'],['A','N2'],['A','N5']);
-      // connect Z to a handful of nodes to force convergence
       e.push(['Z','N16'],['Z','N17'],['Z','N10']);
-      // connect several N's to Z via intermediate bridges
       e.push(['N8','Z'],['N13','Z']);
-      // add some long-shot decoys linking A -> Z via many nodes to look tempting
       e.push(['A','N7'],['N7','N12'],['N12','Z']);
       return e;
-    })()
+    })(),
+    // Curve the A-*, Z-* funnels and the long decoy so they visually stand out
+    curvedEdges: [
+      {u:'A',v:'N0',offset:24},{u:'A',v:'N2',offset:18},{u:'A',v:'N5',offset:-24},
+      {u:'Z',v:'N16',offset:-20},{u:'Z',v:'N17',offset:22},{u:'Z',v:'N10',offset:-18},
+      {u:'N8',v:'Z',offset:18},{u:'N13',v:'Z',offset:-18},
+      {u:'A',v:'N7',offset:26},{u:'N7',v:'N12',offset:-22},{u:'N12',v:'Z',offset:26}
+    ]
   }
 ];
 
+// ------------------ Enhanced curve detection ------------------
+
+// Check if two line segments overlap (not just cross)
+function segmentsOverlap(p1, q1, p2, q2, tolerance = 8) {
+  // Calculate distances from endpoints to the opposite line segment
+  const distanceToLine = (px, py, x1, y1, x2, y2) => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy);
+    if (length === 0) return Math.hypot(px - x1, py - y1);
+    
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (length * length)));
+    const projX = x1 + t * dx;
+    const projY = y1 + t * dy;
+    return Math.hypot(px - projX, py - projY);
+  };
+
+  // Check if segments are close enough to be considered overlapping
+  const d1 = distanceToLine(p1.x, p1.y, p2.x, p2.y, q2.x, q2.y);
+  const d2 = distanceToLine(q1.x, q1.y, p2.x, p2.y, q2.x, q2.y);
+  const d3 = distanceToLine(p2.x, p2.y, p1.x, p1.y, q1.x, q1.y);
+  const d4 = distanceToLine(q2.x, q2.y, p1.x, p1.y, q1.x, q1.y);
+
+  return Math.min(d1, d2, d3, d4) < tolerance;
+}
+
+// Detect overlapping edges and generate smart curves
+function detectOverlappingEdges(level) {
+  const edges = level.edges;
+  const nodes = level.nodes;
+  const overlaps = new Map();
+  
+  // Check all pairs of edges for overlaps
+  for (let i = 0; i < edges.length; i++) {
+    for (let j = i + 1; j < edges.length; j++) {
+      const [u1, v1] = edges[i];
+      const [u2, v2] = edges[j];
+      
+      // Skip if edges share a node
+      if (u1 === u2 || u1 === v2 || v1 === u2 || v1 === v2) continue;
+      
+      const p1 = nodes[u1], q1 = nodes[v1];
+      const p2 = nodes[u2], q2 = nodes[v2];
+      
+      if (segmentsOverlap(p1, q1, p2, q2)) {
+        const key1 = curveKey(u1, v1);
+        const key2 = curveKey(u2, v2);
+        
+        if (!overlaps.has(key1)) overlaps.set(key1, []);
+        if (!overlaps.has(key2)) overlaps.set(key2, []);
+        
+        overlaps.get(key1).push(key2);
+        overlaps.get(key2).push(key1);
+      }
+    }
+  }
+  
+  // Generate curve offsets for overlapping edges
+  const curves = new Map();
+  const processed = new Set();
+  
+  for (const [edgeKey, conflictingEdges] of overlaps) {
+    if (processed.has(edgeKey)) continue;
+    
+    // Group all mutually overlapping edges
+    const group = new Set([edgeKey]);
+    const toProcess = [...conflictingEdges];
+    
+    while (toProcess.length > 0) {
+      const current = toProcess.pop();
+      if (group.has(current)) continue;
+      
+      group.add(current);
+      if (overlaps.has(current)) {
+        toProcess.push(...overlaps.get(current).filter(k => !group.has(k)));
+      }
+    }
+    
+    // Assign minimal curve offsets to group members
+    const groupArray = Array.from(group);
+    groupArray.forEach((key, index) => {
+      processed.add(key);
+      // Use very small offsets to minimize visual obstruction
+      const baseOffset = 8 + (index * 3);
+      const offset = index % 2 === 0 ? baseOffset : -baseOffset;
+      curves.set(key, offset);
+    });
+  }
+  
+  return curves;
+}
+
 // ------------------ Rendering & interaction ------------------
 
+// preserve existing <defs> (e.g., markers)
 function keepDefs() {
   const d = svg.querySelector('defs');
   return d ? d.outerHTML : '';
+}
+
+// --- Curve utilities ---
+function curveKey(a,b){ return a < b ? `${a}|${b}` : `${b}|${a}`; }
+
+function buildCurveMap(level){
+  const map = {};
+  
+  // First, add manually defined curves
+  (level.curvedEdges || []).forEach(entry=>{
+    if(Array.isArray(entry)){ // allow ['A','B'] form
+      const k = curveKey(entry[0], entry[1]);
+      map[k] = 24; // default offset
+    } else if (entry && entry.u && entry.v){
+      map[curveKey(entry.u, entry.v)] = typeof entry.offset === 'number' ? entry.offset : 24;
+    }
+  });
+  
+  // Then, add automatically detected overlapping edges
+  const autoDetected = detectOverlappingEdges(level);
+  for (const [key, offset] of autoDetected) {
+    // Don't override manually defined curves
+    if (!map.hasOwnProperty(key)) {
+      map[key] = offset;
+    }
+  }
+  
+  return map;
+}
+
+function controlPoint(p1, p2, offset){
+  // quadratic Bézier control point at the midpoint, offset perpendicular to the segment
+  const mx = (p1.x + p2.x) / 2;
+  const my = (p1.y + p2.y) / 2;
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy) || 1;
+  // unit perpendicular (rotate by +90°)
+  const px = -dy / len;
+  const py =  dx / len;
+  return { x: mx + px * offset, y: my + py * offset };
+}
+
+function drawStraightEdge(u, v, p1, p2){
+  const line = document.createElementNS("http://www.w3.org/2000/svg","line");
+  line.setAttribute("x1", p1.x);
+  line.setAttribute("y1", p1.y);
+  line.setAttribute("x2", p2.x);
+  line.setAttribute("y2", p2.y);
+  line.setAttribute("class","edge");
+  line.dataset.u = u;
+  line.dataset.v = v;
+  svg.appendChild(line);
+}
+
+function drawCurvedEdge(u, v, p1, p2, offset){
+  const c = controlPoint(p1, p2, offset);
+  const pathEl = document.createElementNS("http://www.w3.org/2000/svg","path");
+  const d = `M ${p1.x} ${p1.y} Q ${c.x} ${c.y} ${p2.x} ${p2.y}`;
+  pathEl.setAttribute("d", d);
+  pathEl.setAttribute("class","edge edge-curved");
+  pathEl.setAttribute("fill", "none");
+  pathEl.setAttribute("stroke-width", "1.5");
+  pathEl.setAttribute("stroke-opacity", "0.6");
+  pathEl.setAttribute("stroke-dasharray", "2,2");
+  pathEl.dataset.u = u;
+  pathEl.dataset.v = v;
+  svg.appendChild(pathEl);
 }
 
 function drawLevel(level) {
@@ -298,17 +494,19 @@ function drawLevel(level) {
   levelTitle.textContent = level.name;
   instruction.innerHTML = `Select the shortest path from <b>${level.start}</b> → <b>${level.end}</b>`;
 
-  // draw edges
+  // prepare curve map (with auto-detection)
+  const curveMap = buildCurveMap(level);
+
+  // draw edges (straight or curved)
   level.edges.forEach(([u,v])=>{
-    // sanity check nodes exist
     if(!level.nodes[u] || !level.nodes[v]) return;
-    const line = document.createElementNS("http://www.w3.org/2000/svg","line");
-    line.setAttribute("x1", level.nodes[u].x);
-    line.setAttribute("y1", level.nodes[u].y);
-    line.setAttribute("x2", level.nodes[v].x);
-    line.setAttribute("y2", level.nodes[v].y);
-    line.setAttribute("class","edge");
-    svg.appendChild(line);
+    const p1 = level.nodes[u], p2 = level.nodes[v];
+    const k = curveKey(u,v);
+    if (k in curveMap) {
+      drawCurvedEdge(u, v, p1, p2, curveMap[k]);
+    } else {
+      drawStraightEdge(u, v, p1, p2);
+    }
   });
 
   // draw nodes (circle + text)
@@ -339,7 +537,13 @@ function drawLevel(level) {
   // control bindings
   submitBtn.onclick = submitPath;
   resetBtn.onclick = reset;
-  showPathBtn.onclick = ()=>{ if(!showingSolution){ const sol = findOneShortestPath(level, level.start, level.end); if(sol) animateSolution(sol); showingSolution=true; } };
+  showPathBtn.onclick = ()=>{
+    if(!showingSolution){
+      const sol = findOneShortestPath(level, level.start, level.end);
+      if(sol) animateSolution(sol);
+      showingSolution=true;
+    }
+  };
   nextLevelBtn.onclick = goToNextLevel;
   restartBtn.onclick = ()=>{ currentLevel = 0; drawLevel(levels[0]); };
 
@@ -388,7 +592,6 @@ function shortestDistance(level, start, end){
   return dist && (end in dist) ? dist[end] : Infinity;
 }
 
-// Reconstruct one BFS parent-based path (shortest by edge count)
 function reconstruct(parent, start, end){
   if(!(end in parent)) return null;
   const out = [];
@@ -452,7 +655,6 @@ function submitPath(){
     }
   }
 
-  // compute true shortest distance
   const best = shortestDistance(level, level.start, level.end);
   if(best === Infinity){
     alert("No path exists (level disconnected).");
@@ -495,16 +697,11 @@ function animateSolution(solution){
       if(nodeElements[n]) nodeElements[n].classList.add('selected');
       if(i>0){
         const from = solution[i-1], to = solution[i];
-        // find corresponding line (match coordinates)
-        const lines = Array.from(svg.querySelectorAll('line'));
-        const found = lines.find(l=>{
-          const x1 = Number(l.getAttribute('x1')), y1 = Number(l.getAttribute('y1'));
-          const x2 = Number(l.getAttribute('x2')), y2 = Number(l.getAttribute('y2'));
-          const pFrom = level.nodes[from], pTo = level.nodes[to];
-          return (pFrom && pTo) && (
-            (x1===pFrom.x && y1===pFrom.y && x2===pTo.x && y2===pTo.y) ||
-            (x1===pTo.x && y1===pTo.y && x2===pFrom.x && y2===pFrom.y)
-          );
+        // match either straight line or curved path via data attributes
+        const edges = Array.from(svg.querySelectorAll('.edge'));
+        const found = edges.find(el=>{
+          const u = el.dataset.u, v = el.dataset.v;
+          return (u===from && v===to) || (u===to && v===from);
         });
         if(found) found.classList.add('highlighted');
       }
@@ -518,8 +715,7 @@ function animateSolution(solution){
 function reset(){
   path = [];
   Object.values(nodeElements).forEach(n=>n.classList.remove('selected','start','end'));
-  svg.querySelectorAll('.edge').forEach(l=>l.classList.remove('highlighted'));
-  // re-mark start/end for current level
+  svg.querySelectorAll('.edge').forEach(el=>el.classList.remove('highlighted'));
   const lvl = levels[currentLevel];
   if(lvl && nodeElements[lvl.start]) nodeElements[lvl.start].classList.add('start');
   if(lvl && nodeElements[lvl.end]) nodeElements[lvl.end].classList.add('end');
