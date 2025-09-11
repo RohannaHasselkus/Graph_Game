@@ -1,6 +1,6 @@
 # GeneLink
 
-GeneLink is an interactive web-based game designed to test and enhance your understanding of neural network architectures. By visually assembling components of various neural networks, players can deepen their comprehension of structures like RNNs, LSTMs, GRUs, and ResNets.
+GeneLink is an interactive web-based game inspired by gene networks, where players explore and connect genes to uncover biological pathways. 
 
 ## How to Play
 
