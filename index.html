@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>SPORE - Advanced Gene Pathfinding (Extreme)</title>
-  <link rel="stylesheet" href="style.css" />
+  <title>Gene Link</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header>
     <h1>GeneLink</h1>
-    <h2 id="levelTitle"></h2>
+    <h2 id="levelTitle">Level 1</h2>
     <p id="instruction">Select the shortest path from start → end</p>
+    <div class="difficulty-info" id="difficultyInfo">
+      Nodes: 8 | Edges: 12 | Difficulty Score: 1.2
+    </div>
   </header>
-
   <main>
     <div id="network-wrap">
       <svg id="graph" viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet">
@@ -23,7 +25,6 @@
         </defs>
       </svg>
     </div>
-
     <div id="controls">
       <button id="submitBtn">Submit Path</button>
       <button id="resetBtn">Reset</button>
@@ -31,9 +32,8 @@
       <button id="nextLevelBtn" style="display:none;">➡ Next Level</button>
       <button id="restartBtn" style="display:none;">⟲ Restart</button>
     </div>
-
     <footer>
-      <small>Levels 0–6: Extreme difficulty. Any valid shortest path is accepted.</small>
+      <small>Brutally difficult randomly generated graphs. Only the shortest paths are accepted.</small>
     </footer>
   </main>
 
