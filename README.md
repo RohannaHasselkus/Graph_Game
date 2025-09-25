@@ -13,8 +13,8 @@ This is an interactive puzzle that turns **Graph Theory** into a playable experi
    - Each move must follow a valid edge.  
    - No revisiting nodes.  
 3. **Submit** – The game checks your path.  
-   - ✅ Correct: Path matches the shortest path of the graph.  
-   - ❌ Incorrect: Game compares your path to the optimal path.  
+   - Correct: Path matches the shortest path of the graph.  
+   - Incorrect: Game compares your path to the optimal path.  
 4. **Progress** – Advance to the next level or replay to improve.
 
 ---
