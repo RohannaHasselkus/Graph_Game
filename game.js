@@ -1,5 +1,4 @@
-
-    // --- DOM refs ---
+ // --- DOM refs ---
     const svg = document.getElementById("graph");
     const levelTitle = document.getElementById("levelTitle");
     const instruction = document.getElementById("instruction");
@@ -165,10 +164,18 @@
         const nodeNames = Object.keys(nodes);
         const n = nodeNames.length;
         
+        // Remove any direct edge between potential start/end to force longer paths
+        const edgesWithoutDirect = (start, end) => {
+          return edges.filter(([u, v]) => 
+            !((u === start && v === end) || (u === end && v === start))
+          );
+        };
+        
         // For higher levels, try to find start/end pairs with interesting paths
         let bestPair = null;
         let bestScore = -1;
-        const attempts = Math.min(50, n * n); // More attempts for better paths
+        const minPathLength = Math.max(3, Math.min(3 + Math.floor(level / 2), 6)); // Progressive minimum
+        const attempts = Math.min(100, n * n); // More attempts for better paths
         
         for (let i = 0; i < attempts; i++) {
           const start = nodeNames[Math.floor(this.rng() * n)];
@@ -177,29 +184,35 @@
             end = nodeNames[Math.floor(this.rng() * n)];
           }
           
-          const shortestPath = this.findShortestPath(nodes, edges, start, end);
-          if (shortestPath && shortestPath.length >= 4) { // Require longer minimum paths
+          // Check with direct edge removed
+          const filteredEdges = edgesWithoutDirect(start, end);
+          const shortestPath = this.findShortestPath(nodes, filteredEdges, start, end);
+          
+          if (shortestPath && shortestPath.length >= minPathLength) {
             // Score based on path length and visual separation
             const pathLength = shortestPath.length - 1;
             const visualDistance = this.distance(nodes[start], nodes[end]);
-            const score = pathLength * 1.5 + visualDistance / 150; // Prioritize longer paths more
+            const score = pathLength * 2 + visualDistance / 100; // Prioritize longer paths
             
             if (score > bestScore) {
               bestScore = score;
-              bestPair = { start, end, shortestPath };
+              bestPair = { start, end, shortestPath, filteredEdges };
             }
           }
         }
         
-        // Fallback to any valid pair if no good pair found
+        // Fallback: try all pairs to find the longest path
         if (!bestPair) {
           for (let i = 0; i < n; i++) {
             for (let j = i + 1; j < n; j++) {
               const start = nodeNames[i];
               const end = nodeNames[j];
-              const shortestPath = this.findShortestPath(nodes, edges, start, end);
-              if (shortestPath) {
-                return { start, end, shortestPath };
+              const filteredEdges = edgesWithoutDirect(start, end);
+              const shortestPath = this.findShortestPath(nodes, filteredEdges, start, end);
+              
+              if (shortestPath && (!bestPair || shortestPath.length > bestPair.shortestPath.length)) {
+                bestPair = { start, end, shortestPath, filteredEdges };
+                bestScore = shortestPath.length;
               }
             }
           }
@@ -216,14 +229,14 @@
         
         const nodes = this.generateNodes(nodeCount, level);
         const edges = this.generateEdges(nodes, level);
-        const { start, end, shortestPath } = this.chooseStartEnd(nodes, edges, level);
+        const { start, end, shortestPath, filteredEdges } = this.chooseStartEnd(nodes, edges, level);
         
-        const difficulty = this.calculateDifficulty(Object.keys(nodes), edges, shortestPath);
+        const difficulty = this.calculateDifficulty(Object.keys(nodes), filteredEdges, shortestPath);
         
         return {
           name: `Level ${level}`,
           nodes,
-          edges,
+          edges: filteredEdges, // Use edges WITHOUT direct start-end connection
           start,
           end,
           difficulty,
