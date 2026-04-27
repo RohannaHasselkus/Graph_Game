@@ -1,625 +1,701 @@
- // --- DOM refs ---
-    const svg = document.getElementById("graph");
-    const levelTitle = document.getElementById("levelTitle");
-    const instruction = document.getElementById("instruction");
-    const difficultyInfo = document.getElementById("difficultyInfo");
-    const submitBtn = document.getElementById("submitBtn");
-    const resetBtn = document.getElementById("resetBtn");
-    const showPathBtn = document.getElementById("showPathBtn");
-    const nextLevelBtn = document.getElementById("nextLevelBtn");
-    const restartBtn = document.getElementById("restartBtn");
+// ─────────────────────────────────────────────
+//  PATHFIND — Shortest Hop Puzzle
+// ─────────────────────────────────────────────
 
-    let nodeElements = {};
-    let path = [];
-    let currentLevel = 1;
-    let showingSolution = false;
-    let currentGraph = null;
+// --- DOM refs ---
+const svg         = document.getElementById("graph");
+const levelBadge  = document.getElementById("levelBadge");
+const instruction = document.getElementById("instruction");
+const startLabel  = document.getElementById("startLabel");
+const endLabel    = document.getElementById("endLabel");
+const metaNodes   = document.getElementById("metaNodes");
+const metaEdges   = document.getElementById("metaEdges");
+const metaDiff    = document.getElementById("metaDifficulty");
+const metaSol     = document.getElementById("metaSolution");
+const pathDisplay = document.getElementById("pathDisplay");
+const submitBtn   = document.getElementById("submitBtn");
+const resetBtn    = document.getElementById("resetBtn");
+const showPathBtn = document.getElementById("showPathBtn");
+const nextLevelBtn= document.getElementById("nextLevelBtn");
+const restartBtn  = document.getElementById("restartBtn");
+const statSolved  = document.getElementById("statSolved");
+const statFailed  = document.getElementById("statFailed");
+const statHints   = document.getElementById("statHints");
+const toast       = document.getElementById("toast");
+const toastIcon   = document.getElementById("toastIcon");
+const toastMsg    = document.getElementById("toastMsg");
 
-    // --- Random Graph Generation with Progressive Difficulty ---
-    
-    class GraphGenerator {
-      constructor() {
-        this.rng = Math.random; // Can be replaced with seeded RNG
+let nodeElements = {};
+let labelElements = {};
+let playerPath   = [];
+let currentLevel = 1;
+let currentGraph = null;
+let toastTimer   = null;
+let levelAttempted = false;
+
+const score = { solved: 0, failed: 0, hints: 0 };
+
+// ─────────────────────────────────────────────
+//  TOAST SYSTEM
+// ─────────────────────────────────────────────
+
+const ICONS = { success: '✓', error: '✕', warning: '⚠', info: '◈' };
+
+function showToast(message, type = 'info', duration = 3200) {
+  if (toastTimer) clearTimeout(toastTimer);
+  toast.className = `toast ${type}`;
+  toastIcon.textContent = ICONS[type] || '◈';
+  toastMsg.textContent = message;
+  // Force reflow so re-triggering animates
+  toast.classList.remove('show');
+  void toast.offsetWidth;
+  toast.classList.add('show');
+  toastTimer = setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+// ─────────────────────────────────────────────
+//  SEEDED RNG
+// ─────────────────────────────────────────────
+
+class SeededRNG {
+  constructor(seed) {
+    this.seed = ((seed % 2147483647) + 2147483647) % 2147483647 || 1;
+  }
+  next() {
+    return this.seed = (this.seed * 16807) % 2147483647;
+  }
+  random() {
+    return (this.next() - 1) / 2147483646;
+  }
+  choice(arr) {
+    return arr[Math.floor(this.random() * arr.length)];
+  }
+  sample(arr, k) {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(this.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy.slice(0, k);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  LEVEL PARAMETER CALCULATOR
+// ─────────────────────────────────────────────
+
+function getLevelParams(level) {
+  return {
+    // Node count grows logarithmically — keeps layout manageable
+    nodeCount: Math.floor(8 + 4 * Math.log2(level + 1)),
+
+    // Avg degree stays LOW and grows very slowly — key to hardness
+    // At degree 2.5 a 25-node graph has ~31 edges only
+    avgDegree: 2.2 + Math.min(level * 0.07, 1.6), // caps at ~3.8
+
+    // Minimum hops in the correct answer
+    minSolutionHops: 3 + Math.floor(Math.log2(level + 1)),
+
+    // Number of deliberate decoy paths (wrong-looking shortcuts)
+    decoyCount: 1 + Math.floor(level / 3),
+
+    // Number of layers for stratified structure
+    layers: Math.max(4, 3 + Math.floor(Math.log2(level + 1))),
+
+    // Nodes per layer
+    nodesPerLayer: 2 + Math.min(Math.floor(level / 4), 4),
+
+    // Seed — deterministic per level so the same level always looks the same
+    seed: Math.imul(level, 2654435761) >>> 0
+  };
+}
+
+// ─────────────────────────────────────────────
+//  GRAPH GENERATOR
+// ─────────────────────────────────────────────
+
+class GraphGenerator {
+  constructor(seed) {
+    this.rng = new SeededRNG(seed);
+  }
+
+  generateNodeNames(count) {
+    const names = [];
+    for (let i = 0; i < Math.min(count, 26); i++) names.push(String.fromCharCode(65 + i));
+    for (let i = 26; i < count; i++) names.push(`N${i - 25}`);
+    return names;
+  }
+
+  buildAdjacency(nodes, edges) {
+    const adj = {};
+    Object.keys(nodes).forEach(n => adj[n] = []);
+    edges.forEach(([u, v]) => { adj[u].push(v); adj[v].push(u); });
+    return adj;
+  }
+
+  bfsDistances(nodes, edges, start) {
+    const adj = this.buildAdjacency(nodes, edges);
+    const dist = {};
+    Object.keys(nodes).forEach(n => dist[n] = Infinity);
+    dist[start] = 0;
+    const queue = [start];
+    while (queue.length) {
+      const cur = queue.shift();
+      for (const nb of adj[cur]) {
+        if (dist[nb] === Infinity) { dist[nb] = dist[cur] + 1; queue.push(nb); }
       }
+    }
+    return dist;
+  }
 
-      // Calculate mathematical difficulty score
-      calculateDifficulty(nodes, edges, shortestPath) {
-        const n = nodes.length;
-        const m = edges.length;
-        const density = (2 * m) / (n * (n - 1)); // Edge density
-        const avgDegree = (2 * m) / n;
-        const shortestLength = shortestPath ? shortestPath.length - 1 : 1;
-        
-        // Difficulty factors:
-        // 1. Graph density (more edges = more confusing paths)
-        // 2. Average degree (nodes with many connections)
-        // 3. Ratio of total possible paths to shortest path
-        // 4. Graph size
-        
-        const densityFactor = density * 2; // 0-2 range
-        const degreeFactor = Math.min(avgDegree / 4, 2); // Cap at 2
-        const pathComplexity = Math.log(n) / Math.log(shortestLength + 1);
-        const sizeFactor = Math.log(n) / Math.log(10); // Logarithmic scaling
-        
-        return densityFactor + degreeFactor + pathComplexity + sizeFactor;
+  findShortestPath(nodes, edges, start, end) {
+    const adj = this.buildAdjacency(nodes, edges);
+    const parent = { [start]: null };
+    const queue = [start];
+    const visited = new Set([start]);
+    while (queue.length) {
+      const cur = queue.shift();
+      if (cur === end) {
+        const path = [];
+        let node = end;
+        while (node !== null) { path.unshift(node); node = parent[node]; }
+        return path;
       }
+      for (const nb of adj[cur] || []) {
+        if (!visited.has(nb)) { visited.add(nb); parent[nb] = cur; queue.push(nb); }
+      }
+    }
+    return null;
+  }
 
-      // Generate nodes in a roughly grid-like pattern with some randomness
-      generateNodes(count, level) {
-        const nodes = {};
-        const margin = 80;
-        const width = 1200 - 2 * margin;
-        const height = 700 - 2 * margin;
-        
-        // Calculate rough grid dimensions
-        const cols = Math.ceil(Math.sqrt(count * width / height));
-        const rows = Math.ceil(count / cols);
-        
-        const nodeNames = this.generateNodeNames(count);
-        let nodeIndex = 0;
-        
-        for (let row = 0; row < rows && nodeIndex < count; row++) {
-          for (let col = 0; col < cols && nodeIndex < count; col++) {
-            // Base grid position
-            const baseX = margin + (col + 0.5) * (width / cols);
-            const baseY = margin + (row + 0.5) * (height / rows);
-            
-            // Add randomness that increases with level - more chaos from start
-            const randomFactor = Math.min(20 + level * 15, 60); // Start with more randomness
-            const offsetX = (this.rng() - 0.5) * randomFactor;
-            const offsetY = (this.rng() - 0.5) * randomFactor;
-            
-            nodes[nodeNames[nodeIndex]] = {
-              x: Math.max(margin, Math.min(1200 - margin, baseX + offsetX)),
-              y: Math.max(margin, Math.min(700 - margin, baseY + offsetY))
-            };
-            nodeIndex++;
+  calculateDiameter(nodes, edges) {
+    const nodeNames = Object.keys(nodes);
+    let max = 0;
+    for (const n of nodeNames) {
+      const dists = Object.values(this.bfsDistances(nodes, edges, n));
+      const finite = dists.filter(d => d !== Infinity);
+      if (finite.length) max = Math.max(max, Math.max(...finite));
+    }
+    return max;
+  }
+
+  // Count paths of exactly length k from start to end (BFS layer counting)
+  countPathsOfLength(nodes, edges, start, end, k) {
+    const adj = this.buildAdjacency(nodes, edges);
+    // BFS with layer tracking — count distinct paths
+    let frontier = [{ node: start, visited: new Set([start]) }];
+    for (let step = 0; step < k; step++) {
+      const next = [];
+      for (const { node, visited } of frontier) {
+        for (const nb of adj[node] || []) {
+          if (!visited.has(nb)) {
+            const v2 = new Set(visited); v2.add(nb);
+            next.push({ node: nb, visited: v2 });
           }
         }
-        
-        return nodes;
       }
+      frontier = next;
+      if (!frontier.length) return 0;
+    }
+    return frontier.filter(f => f.node === end).length;
+  }
 
-      // Generate reasonable node names
-      generateNodeNames(count) {
-        const names = [];
-        
-        // Use single letters first
-        for (let i = 0; i < Math.min(count, 26); i++) {
-          names.push(String.fromCharCode(65 + i)); // A, B, C, ...
-        }
-        
-        // Then use numbered names
-        for (let i = 26; i < count; i++) {
-          names.push(`N${i - 25}`);
-        }
-        
-        return names;
-      }
+  // ── STRATIFIED GRAPH GENERATION ──
+  // Nodes arranged in layers. Edges only go forward (or lateral within a layer).
+  // This guarantees a minimum path length equal to layers-1 hops.
+  generateStratifiedGraph(params) {
+    const { layers, nodesPerLayer, decoyCount, seed } = params;
+    const totalNodes = layers * nodesPerLayer;
+    const names = this.generateNodeNames(totalNodes);
+    const nodes = {};
+    const edges = [];
+    const existingEdgeSet = new Set();
 
-      // Generate edges with progressive complexity
-      generateEdges(nodes, level) {
-        const nodeNames = Object.keys(nodes);
-        const n = nodeNames.length;
-        const edges = [];
-        
-        // Calculate target metrics based on level - much denser from start
-        const baseDensity = 0.35; // 35% base connectivity (was 15%)
-        const levelDensity = Math.min(baseDensity + (level - 1) * 0.12, 0.85); // Cap at 85%, faster growth
-        const targetEdges = Math.floor(levelDensity * n * (n - 1) / 2);
-        
-        // First, ensure connectivity with a spanning tree
-        const connected = new Set([nodeNames[0]]);
-        const unconnected = new Set(nodeNames.slice(1));
-        
-        while (unconnected.size > 0) {
-          const fromNode = this.randomFromSet(connected);
-          const toNode = this.randomFromSet(unconnected);
-          
-          edges.push([fromNode, toNode]);
-          connected.add(toNode);
-          unconnected.delete(toNode);
-        }
-        
-        // Add additional edges for complexity
-        const existingEdges = new Set();
-        edges.forEach(([a, b]) => {
-          existingEdges.add(a < b ? `${a}-${b}` : `${b}-${a}`);
-        });
-        
-        while (edges.length < targetEdges) {
-          const a = nodeNames[Math.floor(this.rng() * n)];
-          const b = nodeNames[Math.floor(this.rng() * n)];
-          
-          if (a !== b) {
-            const key = a < b ? `${a}-${b}` : `${b}-${a}`;
-            if (!existingEdges.has(key)) {
-              // More chaotic edge distribution - less bias towards short edges
-              const dist = this.distance(nodes[a], nodes[b]);
-              const maxDist = Math.sqrt(1200*1200 + 700*700);
-              const probability = 1 - (dist / maxDist) * 0.4; // Less distance bias = more long edges
-              
-              if (this.rng() < probability) {
-                edges.push([a, b]);
-                existingEdges.add(key);
-              }
-            }
-          }
-        }
-        
-        return edges;
-      }
+    const W = 1140, H = 540;
+    const marginX = 80, marginY = 70;
 
-      randomFromSet(set) {
-        const items = Array.from(set);
-        return items[Math.floor(this.rng() * items.length)];
-      }
-
-      distance(a, b) {
-        return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-      }
-
-      // Choose start and end nodes that create interesting shortest paths
-      chooseStartEnd(nodes, edges, level) {
-        const nodeNames = Object.keys(nodes);
-        const n = nodeNames.length;
-        
-        // Remove any direct edge between potential start/end to force longer paths
-        const edgesWithoutDirect = (start, end) => {
-          return edges.filter(([u, v]) => 
-            !((u === start && v === end) || (u === end && v === start))
-          );
+    // Assign positions: layers along X, nodes per layer along Y
+    const layerMap = [];
+    let idx = 0;
+    for (let l = 0; l < layers; l++) {
+      layerMap[l] = [];
+      for (let k = 0; k < nodesPerLayer; k++) {
+        const name = names[idx++];
+        const baseX = marginX + (l / (layers - 1)) * (W - 2 * marginX);
+        const baseY = marginY + (nodesPerLayer > 1 ? (k / (nodesPerLayer - 1)) : 0.5) * (H - 2 * marginY);
+        // Small jitter so it doesn't look too mechanical
+        const jitterX = (this.rng.random() - 0.5) * 40;
+        const jitterY = (this.rng.random() - 0.5) * 50;
+        nodes[name] = {
+          x: Math.max(marginX, Math.min(W - marginX + 40, baseX + jitterX)),
+          y: Math.max(marginY, Math.min(H - marginY, baseY + jitterY))
         };
-        
-        // For higher levels, try to find start/end pairs with interesting paths
-        let bestPair = null;
-        let bestScore = -1;
-        const minPathLength = Math.max(3, Math.min(3 + Math.floor(level / 2), 6)); // Progressive minimum
-        const attempts = Math.min(100, n * n); // More attempts for better paths
-        
-        for (let i = 0; i < attempts; i++) {
-          const start = nodeNames[Math.floor(this.rng() * n)];
-          let end = nodeNames[Math.floor(this.rng() * n)];
-          while (end === start) {
-            end = nodeNames[Math.floor(this.rng() * n)];
-          }
-          
-          // Check with direct edge removed
-          const filteredEdges = edgesWithoutDirect(start, end);
-          const shortestPath = this.findShortestPath(nodes, filteredEdges, start, end);
-          
-          if (shortestPath && shortestPath.length >= minPathLength) {
-            // Score based on path length and visual separation
-            const pathLength = shortestPath.length - 1;
-            const visualDistance = this.distance(nodes[start], nodes[end]);
-            const score = pathLength * 2 + visualDistance / 100; // Prioritize longer paths
-            
-            if (score > bestScore) {
-              bestScore = score;
-              bestPair = { start, end, shortestPath, filteredEdges };
-            }
-          }
-        }
-        
-        // Fallback: try all pairs to find the longest path
-        if (!bestPair) {
-          for (let i = 0; i < n; i++) {
-            for (let j = i + 1; j < n; j++) {
-              const start = nodeNames[i];
-              const end = nodeNames[j];
-              const filteredEdges = edgesWithoutDirect(start, end);
-              const shortestPath = this.findShortestPath(nodes, filteredEdges, start, end);
-              
-              if (shortestPath && (!bestPair || shortestPath.length > bestPair.shortestPath.length)) {
-                bestPair = { start, end, shortestPath, filteredEdges };
-                bestScore = shortestPath.length;
-              }
-            }
-          }
-        }
-        
-        return bestPair;
-      }
-
-      // Generate complete level
-      generateLevel(level) {
-        // Much harder progressive difficulty scaling
-        const baseNodes = 12; // Start with 12 nodes instead of 6
-        const nodeCount = Math.min(baseNodes + Math.floor((level - 1) * 2.5), 25); // Faster growth, higher cap
-        
-        const nodes = this.generateNodes(nodeCount, level);
-        const edges = this.generateEdges(nodes, level);
-        const { start, end, shortestPath, filteredEdges } = this.chooseStartEnd(nodes, edges, level);
-        
-        const difficulty = this.calculateDifficulty(Object.keys(nodes), filteredEdges, shortestPath);
-        
-        return {
-          name: `Level ${level}`,
-          nodes,
-          edges: filteredEdges, // Use edges WITHOUT direct start-end connection
-          start,
-          end,
-          difficulty,
-          shortestPath
-        };
-      }
-
-      // BFS shortest path finder
-      findShortestPath(nodes, edges, start, end) {
-        const adj = {};
-        Object.keys(nodes).forEach(n => adj[n] = []);
-        edges.forEach(([u, v]) => {
-          adj[u].push(v);
-          adj[v].push(u);
-        });
-
-        const queue = [start];
-        const visited = new Set([start]);
-        const parent = { [start]: null };
-
-        while (queue.length > 0) {
-          const current = queue.shift();
-          
-          if (current === end) {
-            // Reconstruct path
-            const path = [];
-            let node = end;
-            while (node !== null) {
-              path.unshift(node);
-              node = parent[node];
-            }
-            return path;
-          }
-
-          for (const neighbor of adj[current] || []) {
-            if (!visited.has(neighbor)) {
-              visited.add(neighbor);
-              parent[neighbor] = current;
-              queue.push(neighbor);
-            }
-          }
-        }
-
-        return null; // No path found
+        layerMap[l].push(name);
       }
     }
 
-    // --- Edge Overlap Detection and Curve Generation ---
-    
-    function detectOverlappingEdges(nodes, edges) {
-      const curves = new Map();
-      const tolerance = 15; // Pixels
-      
-      // Check all pairs of edges for visual overlap
-      for (let i = 0; i < edges.length; i++) {
-        for (let j = i + 1; j < edges.length; j++) {
-          const [u1, v1] = edges[i];
-          const [u2, v2] = edges[j];
-          
-          // Skip if edges share a node
-          if (u1 === u2 || u1 === v2 || v1 === u2 || v1 === v2) continue;
-          
-          const p1 = nodes[u1], q1 = nodes[v1];
-          const p2 = nodes[u2], q2 = nodes[v2];
-          
-          if (lineSegmentsNearlyOverlap(p1, q1, p2, q2, tolerance)) {
-            const key1 = edgeKey(u1, v1);
-            const key2 = edgeKey(u2, v2);
-            
-            // Assign curve offsets - alternate positive and negative
-            if (!curves.has(key1)) {
-              curves.set(key1, 20 + (curves.size % 2) * 10);
-            }
-            if (!curves.has(key2)) {
-              curves.set(key2, -(20 + (curves.size % 2) * 10));
-            }
-          }
+    const addEdge = (u, v) => {
+      const key = u < v ? `${u}|${v}` : `${v}|${u}`;
+      if (u !== v && !existingEdgeSet.has(key)) {
+        existingEdgeSet.add(key);
+        edges.push([u, v]);
+        return true;
+      }
+      return false;
+    };
+
+    // 1. Guarantee connectivity: each node in layer l connects to at least one node in layer l+1
+    for (let l = 0; l < layers - 1; l++) {
+      for (const u of layerMap[l]) {
+        // Connect to 1 guaranteed neighbor in next layer
+        const target = this.rng.choice(layerMap[l + 1]);
+        addEdge(u, target);
+      }
+      // Also connect each next-layer node back to ensure no isolated nodes
+      for (const v of layerMap[l + 1]) {
+        const hasIncoming = edges.some(([u2, v2]) => (v2 === v || u2 === v) && layerMap[l].includes(u2 === v ? v2 : u2));
+        if (!hasIncoming) {
+          addEdge(this.rng.choice(layerMap[l]), v);
         }
       }
-      
-      return curves;
     }
 
-    function lineSegmentsNearlyOverlap(p1, q1, p2, q2, tolerance) {
-      // Calculate minimum distance between line segments
+    // 2. Add lateral edges within layers (same hop count, more choices = more confusion)
+    const lateralCount = Math.floor(layers * nodesPerLayer * 0.3);
+    for (let attempt = 0; attempt < lateralCount * 3; attempt++) {
+      const l = Math.floor(this.rng.random() * layers);
+      if (layerMap[l].length < 2) continue;
+      const [u, v] = this.rng.sample(layerMap[l], 2);
+      addEdge(u, v);
+      if (edges.length >= lateralCount + layers * nodesPerLayer) break;
+    }
+
+    // 3. Add skip edges (skip one layer — look like shortcuts, same or longer actual hop count)
+    for (let d = 0; d < decoyCount; d++) {
+      const l1 = Math.floor(this.rng.random() * (layers - 2));
+      const l2 = l1 + 2; // skip one layer
+      const u = this.rng.choice(layerMap[l1]);
+      const v = this.rng.choice(layerMap[l2]);
+      addEdge(u, v);
+    }
+
+    // 4. Start = random node in first layer, End = random node in last layer
+    const start = this.rng.choice(layerMap[0]);
+    const end   = this.rng.choice(layerMap[layers - 1]);
+
+    return { nodes, edges, start, end, layerMap };
+  }
+
+  generateLevel(level) {
+    const params = getLevelParams(level);
+    params.seed = Math.imul(level, 2654435761) >>> 0;
+
+    let best = null;
+    // Try up to 12 times to get a graph with good decoy ratio
+    for (let attempt = 0; attempt < 12; attempt++) {
+      // Use different seed per attempt but still deterministic
+      this.rng = new SeededRNG(params.seed + attempt * 999983);
+      const { nodes, edges, start, end } = this.generateStratifiedGraph(params);
+      const shortestPath = this.findShortestPath(nodes, edges, start, end);
+      if (!shortestPath) continue;
+
+      const hops = shortestPath.length - 1;
+      if (hops < params.minSolutionHops) continue;
+
+      // Check decoy ratio: there should be at least 2 wrong paths for every 1 optimal path
+      const optPaths  = this.countPathsOfLength(nodes, edges, start, end, hops);
+      const wrongPaths = this.countPathsOfLength(nodes, edges, start, end, hops + 1);
+
+      const decoyRatio = optPaths > 0 ? wrongPaths / optPaths : 0;
+      const diameter   = this.calculateDiameter(nodes, edges);
+
+      // Score this candidate — higher is better
+      const candidateScore = hops * 3 + decoyRatio * 2 + diameter;
+      if (!best || candidateScore > best.score) {
+        best = { nodes, edges, start, end, shortestPath, hops, decoyRatio, diameter, score: candidateScore };
+      }
+    }
+
+    // Fallback if nothing met criteria
+    if (!best) {
+      this.rng = new SeededRNG(params.seed);
+      const { nodes, edges, start, end } = this.generateStratifiedGraph(params);
+      const shortestPath = this.findShortestPath(nodes, edges, start, end) || [start, end];
+      best = { nodes, edges, start, end, shortestPath, hops: shortestPath.length - 1, decoyRatio: 0, diameter: 0, score: 0 };
+    }
+
+    const difficultyScore = best.hops * 2.5 + best.decoyRatio * 1.5 + (Object.keys(best.nodes).length / 5);
+
+    return {
+      name: `Level ${level}`,
+      nodes: best.nodes,
+      edges: best.edges,
+      start: best.start,
+      end: best.end,
+      shortestPath: best.shortestPath,
+      hops: best.hops,
+      decoyRatio: best.decoyRatio,
+      difficulty: difficultyScore,
+      nodeCount: Object.keys(best.nodes).length,
+      edgeCount: best.edges.length
+    };
+  }
+}
+
+// ─────────────────────────────────────────────
+//  EDGE OVERLAP / CURVE DETECTION
+// ─────────────────────────────────────────────
+
+function edgeKey(a, b) { return a < b ? `${a}|${b}` : `${b}|${a}`; }
+
+function distance(a, b) { return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); }
+
+function pointToSegDist(point, s, e) {
+  const dx = e.x - s.x, dy = e.y - s.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return distance(point, s);
+  const t = Math.max(0, Math.min(1, ((point.x - s.x) * dx + (point.y - s.y) * dy) / len2));
+  return distance(point, { x: s.x + t * dx, y: s.y + t * dy });
+}
+
+function detectOverlappingEdges(nodes, edges) {
+  const curves = new Map();
+  const tol = 18;
+  for (let i = 0; i < edges.length; i++) {
+    for (let j = i + 1; j < edges.length; j++) {
+      const [u1, v1] = edges[i], [u2, v2] = edges[j];
+      if (u1===u2||u1===v2||v1===u2||v1===v2) continue;
+      const p1=nodes[u1],q1=nodes[v1],p2=nodes[u2],q2=nodes[v2];
       const minDist = Math.min(
-        pointToLineSegmentDistance(p1, p2, q2),
-        pointToLineSegmentDistance(q1, p2, q2),
-        pointToLineSegmentDistance(p2, p1, q1),
-        pointToLineSegmentDistance(q2, p1, q1)
+        pointToSegDist(p1,p2,q2), pointToSegDist(q1,p2,q2),
+        pointToSegDist(p2,p1,q1), pointToSegDist(q2,p1,q1)
       );
-      
-      return minDist < tolerance;
-    }
-
-    function pointToLineSegmentDistance(point, lineStart, lineEnd) {
-      const dx = lineEnd.x - lineStart.x;
-      const dy = lineEnd.y - lineStart.y;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      
-      if (length === 0) return distance(point, lineStart);
-      
-      const t = Math.max(0, Math.min(1, 
-        ((point.x - lineStart.x) * dx + (point.y - lineStart.y) * dy) / (length * length)
-      ));
-      
-      const projection = {
-        x: lineStart.x + t * dx,
-        y: lineStart.y + t * dy
-      };
-      
-      return distance(point, projection);
-    }
-
-    function distance(a, b) {
-      return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
-    }
-
-    function edgeKey(a, b) {
-      return a < b ? `${a}|${b}` : `${b}|${a}`;
-    }
-
-    // --- Rendering Functions ---
-    
-    function drawLevel(graph) {
-      currentGraph = graph;
-      
-      // Clear SVG (preserve defs)
-      const defs = svg.querySelector('defs');
-      svg.innerHTML = defs ? defs.outerHTML : '';
-      
-      nodeElements = {};
-      path = [];
-      showingSolution = false;
-      
-      // Update UI
-      levelTitle.textContent = graph.name;
-      instruction.innerHTML = `Select the shortest path from <strong>${graph.start}</strong> → <strong>${graph.end}</strong>`;
-      difficultyInfo.textContent = `Nodes: ${Object.keys(graph.nodes).length} | Edges: ${graph.edges.length} | Difficulty: ${graph.difficulty.toFixed(1)}`;
-      
-      // Hide action buttons
-      showPathBtn.style.display = "none";
-      nextLevelBtn.style.display = "none";
-      restartBtn.style.display = "none";
-      
-      // Detect overlapping edges and generate curves
-      const curves = detectOverlappingEdges(graph.nodes, graph.edges);
-      
-      // Draw edges
-      graph.edges.forEach(([u, v]) => {
-        const p1 = graph.nodes[u];
-        const p2 = graph.nodes[v];
-        const key = edgeKey(u, v);
-        
-        if (curves.has(key)) {
-          drawCurvedEdge(u, v, p1, p2, curves.get(key));
-        } else {
-          drawStraightEdge(u, v, p1, p2);
-        }
-      });
-      
-      // Draw nodes
-      Object.entries(graph.nodes).forEach(([name, pos]) => {
-        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        circle.setAttribute("cx", pos.x);
-        circle.setAttribute("cy", pos.y);
-        circle.setAttribute("r", 18);
-        circle.setAttribute("class", "node");
-        circle.dataset.name = name;
-        svg.appendChild(circle);
-        
-        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        text.setAttribute("x", pos.x);
-        text.setAttribute("y", pos.y + 4);
-        text.setAttribute("text-anchor", "middle");
-        text.textContent = name;
-        svg.appendChild(text);
-        
-        circle.addEventListener("click", () => handleNodeClick(name));
-        nodeElements[name] = circle;
-      });
-      
-      // Style start/end nodes
-      if (nodeElements[graph.start]) nodeElements[graph.start].classList.add('start');
-      if (nodeElements[graph.end]) nodeElements[graph.end].classList.add('end');
-    }
-
-    function drawStraightEdge(u, v, p1, p2) {
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", p1.x);
-      line.setAttribute("y1", p1.y);
-      line.setAttribute("x2", p2.x);
-      line.setAttribute("y2", p2.y);
-      line.setAttribute("class", "edge");
-      line.dataset.u = u;
-      line.dataset.v = v;
-      svg.appendChild(line);
-    }
-
-    function drawCurvedEdge(u, v, p1, p2, offset) {
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
-      
-      // Calculate perpendicular offset
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      
-      if (length === 0) return drawStraightEdge(u, v, p1, p2);
-      
-      const perpX = -dy / length;
-      const perpY = dx / length;
-      
-      const controlX = midX + perpX * offset;
-      const controlY = midY + perpY * offset;
-      
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      const d = `M ${p1.x} ${p1.y} Q ${controlX} ${controlY} ${p2.x} ${p2.y}`;
-      path.setAttribute("d", d);
-      path.setAttribute("class", "edge edge-curved");
-      path.dataset.u = u;
-      path.dataset.v = v;
-      svg.appendChild(path);
-    }
-
-    // --- Game Logic ---
-    
-    function isConnected(a, b, edges) {
-      return edges.some(([u, v]) => (u === a && v === b) || (u === b && v === a));
-    }
-
-    function handleNodeClick(name) {
-      if (!currentGraph) return;
-      
-      // Must start with start node
-      if (path.length === 0 && name !== currentGraph.start) return;
-      
-      const lastNode = path[path.length - 1];
-      
-      // Clicking last node removes it (undo)
-      if (lastNode === name) {
-        path.pop();
-        nodeElements[name].classList.remove('selected');
-        return;
-      }
-      
-      // Can't revisit nodes
-      if (path.includes(name)) return;
-      
-      // Must be connected to previous node
-      if (path.length === 0 || isConnected(lastNode, name, currentGraph.edges)) {
-        path.push(name);
-        nodeElements[name].classList.add('selected');
+      if (minDist < tol) {
+        const k1 = edgeKey(u1,v1), k2 = edgeKey(u2,v2);
+        if (!curves.has(k1)) curves.set(k1, 22);
+        if (!curves.has(k2)) curves.set(k2, -22);
       }
     }
+  }
+  return curves;
+}
 
-    function submitPath() {
-      if (!currentGraph) return;
-      
-      if (path.length === 0) {
-        alert("No path selected.");
-        return;
-      }
-      
-      if (path[0] !== currentGraph.start || path[path.length - 1] !== currentGraph.end) {
-        alert(`Path must start at ${currentGraph.start} and end at ${currentGraph.end}.`);
-        return;
-      }
-      
-      // Verify all connections
-      for (let i = 0; i < path.length - 1; i++) {
-        if (!isConnected(path[i], path[i + 1], currentGraph.edges)) {
-          alert("Invalid path - not all steps are connected.");
-          return;
-        }
-      }
-      
-      const playerPathLength = path.length - 1;
-      const shortestPathLength = currentGraph.shortestPath.length - 1;
-      
-      if (playerPathLength === shortestPathLength) {
-        alert(`✅ Correct! You found a shortest path (${shortestPathLength} steps).`);
-        nextLevelBtn.style.display = "inline-block";
-        showPathBtn.style.display = "none";
-      } else {
-        alert(`❌ Not optimal. Your path: ${playerPathLength} steps, shortest: ${shortestPathLength} steps.`);
-        showPathBtn.style.display = "inline-block";
-        nextLevelBtn.style.display = "inline-block";
-      }
+// ─────────────────────────────────────────────
+//  RENDERING
+// ─────────────────────────────────────────────
+
+function svgEl(tag) { return document.createElementNS("http://www.w3.org/2000/svg", tag); }
+
+function drawStraightEdge(u, v, p1, p2) {
+  const line = svgEl("line");
+  line.setAttribute("x1", p1.x); line.setAttribute("y1", p1.y);
+  line.setAttribute("x2", p2.x); line.setAttribute("y2", p2.y);
+  line.setAttribute("class", "edge");
+  line.dataset.u = u; line.dataset.v = v;
+  svg.insertBefore(line, svg.querySelector('.node') || null);
+}
+
+function drawCurvedEdge(u, v, p1, p2, offset) {
+  const midX = (p1.x + p2.x) / 2, midY = (p1.y + p2.y) / 2;
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const len = Math.sqrt(dx*dx + dy*dy);
+  if (len === 0) return drawStraightEdge(u, v, p1, p2);
+  const cx = midX + (-dy / len) * offset;
+  const cy = midY + (dx / len) * offset;
+  const path = svgEl("path");
+  path.setAttribute("d", `M ${p1.x} ${p1.y} Q ${cx} ${cy} ${p2.x} ${p2.y}`);
+  path.setAttribute("class", "edge edge-curved");
+  path.dataset.u = u; path.dataset.v = v;
+  svg.insertBefore(path, svg.querySelector('.node') || null);
+}
+
+function drawLevel(graph) {
+  currentGraph = graph;
+  playerPath = [];
+  levelAttempted = false;
+
+  // Clear SVG (keep defs)
+  const defs = svg.querySelector('defs');
+  svg.innerHTML = defs ? defs.outerHTML : '';
+  nodeElements = {};
+  labelElements = {};
+
+  // Update header
+  levelBadge.textContent = `LVL ${currentLevel}`;
+  startLabel.textContent = graph.start;
+  endLabel.textContent   = graph.end;
+  metaNodes.textContent  = `${graph.nodeCount} nodes`;
+  metaEdges.textContent  = `${graph.edgeCount} edges`;
+  metaDiff.textContent   = `difficulty ${graph.difficulty.toFixed(1)}`;
+  metaSol.textContent    = `solution: ${graph.hops} hop${graph.hops !== 1 ? 's' : ''}`;
+  pathDisplay.textContent = '—';
+
+  // Hide action buttons
+  showPathBtn.style.display  = 'none';
+  nextLevelBtn.style.display = 'none';
+  restartBtn.style.display   = 'none';
+
+  // Draw edges first (behind nodes)
+  const curves = detectOverlappingEdges(graph.nodes, graph.edges);
+  graph.edges.forEach(([u, v]) => {
+    const p1 = graph.nodes[u], p2 = graph.nodes[v];
+    const key = edgeKey(u, v);
+    curves.has(key) ? drawCurvedEdge(u, v, p1, p2, curves.get(key)) : drawStraightEdge(u, v, p1, p2);
+  });
+
+  // Draw nodes + labels
+  Object.entries(graph.nodes).forEach(([name, pos]) => {
+    const circle = svgEl("circle");
+    circle.setAttribute("cx", pos.x);
+    circle.setAttribute("cy", pos.y);
+    circle.setAttribute("r", 16);
+    circle.setAttribute("class", "node");
+    circle.dataset.name = name;
+    svg.appendChild(circle);
+
+    const text = svgEl("text");
+    text.setAttribute("x", pos.x);
+    text.setAttribute("y", pos.y + 4);
+    text.setAttribute("text-anchor", "middle");
+    text.setAttribute("class", "node-label");
+    text.textContent = name;
+    svg.appendChild(text);
+
+    circle.addEventListener("click", () => handleNodeClick(name));
+    nodeElements[name] = circle;
+    labelElements[name] = text;
+  });
+
+  // Style start / end
+  applyNodeClass(graph.start, 'start');
+  applyNodeClass(graph.end, 'end');
+}
+
+function applyNodeClass(name, cls) {
+  nodeElements[name]?.classList.add(cls);
+  labelElements[name]?.classList.add(cls);
+}
+
+function removeNodeClass(name, cls) {
+  nodeElements[name]?.classList.remove(cls);
+  labelElements[name]?.classList.remove(cls);
+}
+
+function highlightEdgeBetween(u, v, cls = 'highlighted') {
+  svg.querySelectorAll('.edge').forEach(edge => {
+    if ((edge.dataset.u === u && edge.dataset.v === v) ||
+        (edge.dataset.u === v && edge.dataset.v === u)) {
+      edge.classList.add(cls);
     }
+  });
+}
 
-    function showSolution() {
-      if (!currentGraph || !currentGraph.shortestPath) return;
-      
-      reset();
-      animatePath(currentGraph.shortestPath);
-      showingSolution = true;
+function clearEdgeClass(cls) {
+  svg.querySelectorAll('.edge').forEach(e => e.classList.remove(cls));
+}
+
+function updatePathOverlay() {
+  if (playerPath.length === 0) {
+    pathDisplay.textContent = '—';
+  } else {
+    const hops = playerPath.length - 1;
+    pathDisplay.textContent = playerPath.join(' → ') + (hops > 0 ? `  (${hops} hop${hops !== 1 ? 's' : ''})` : '');
+  }
+}
+
+// ─────────────────────────────────────────────
+//  GAME LOGIC
+// ─────────────────────────────────────────────
+
+function isConnected(a, b) {
+  return currentGraph.edges.some(([u, v]) => (u===a&&v===b)||(u===b&&v===a));
+}
+
+function handleNodeClick(name) {
+  if (!currentGraph) return;
+
+  // Must start at the start node
+  if (playerPath.length === 0 && name !== currentGraph.start) {
+    showToast(`Start at node ${currentGraph.start}`, 'warning', 2000);
+    flashInvalid(name);
+    return;
+  }
+
+  const last = playerPath[playerPath.length - 1];
+
+  // Click last node to undo
+  if (last === name) {
+    playerPath.pop();
+    removeNodeClass(name, 'selected');
+    // Remove player-path highlight on edge coming in to this node
+    if (playerPath.length > 0) clearAndRehighlightPlayerPath();
+    updatePathOverlay();
+    return;
+  }
+
+  // Can't revisit
+  if (playerPath.includes(name)) {
+    showToast('Already visited — click the last node to undo', 'warning', 2000);
+    return;
+  }
+
+  // Must be adjacent
+  if (playerPath.length > 0 && !isConnected(last, name)) {
+    showToast(`No edge from ${last} to ${name}`, 'error', 2000);
+    flashInvalid(name);
+    return;
+  }
+
+  playerPath.push(name);
+  applyNodeClass(name, 'selected');
+
+  // Highlight the edge we just traversed
+  if (playerPath.length > 1) {
+    highlightEdgeBetween(playerPath[playerPath.length - 2], name, 'player-path');
+  }
+
+  updatePathOverlay();
+}
+
+function flashInvalid(name) {
+  const el = nodeElements[name];
+  if (!el) return;
+  el.classList.add('invalid-flash');
+  setTimeout(() => el.classList.remove('invalid-flash'), 350);
+}
+
+function clearAndRehighlightPlayerPath() {
+  clearEdgeClass('player-path');
+  for (let i = 0; i < playerPath.length - 1; i++) {
+    highlightEdgeBetween(playerPath[i], playerPath[i + 1], 'player-path');
+  }
+}
+
+function submitPath() {
+  if (!currentGraph) return;
+
+  if (playerPath.length === 0) {
+    showToast('Select a path first', 'warning');
+    return;
+  }
+
+  if (playerPath[0] !== currentGraph.start || playerPath[playerPath.length - 1] !== currentGraph.end) {
+    showToast(`Path must go from ${currentGraph.start} → ${currentGraph.end}`, 'warning');
+    return;
+  }
+
+  for (let i = 0; i < playerPath.length - 1; i++) {
+    if (!isConnected(playerPath[i], playerPath[i + 1])) {
+      showToast('Invalid path — disconnected step detected', 'error');
+      return;
     }
+  }
 
-    function animatePath(pathToAnimate) {
-      let i = 0;
-      const interval = setInterval(() => {
-        if (i < pathToAnimate.length) {
-          const node = pathToAnimate[i];
-          if (nodeElements[node]) {
-            nodeElements[node].classList.add('selected');
-          }
-          
-          // Highlight edge
-          if (i > 0) {
-            const prevNode = pathToAnimate[i - 1];
-            const currentNode = pathToAnimate[i];
-            highlightEdge(prevNode, currentNode);
-          }
-          
-          i++;
-        } else {
-          clearInterval(interval);
-        }
-      }, 400);
-    }
+  const playerHops   = playerPath.length - 1;
+  const optimalHops  = currentGraph.hops;
 
-    function highlightEdge(u, v) {
-      const edges = svg.querySelectorAll('.edge');
-      for (const edge of edges) {
-        const edgeU = edge.dataset.u;
-        const edgeV = edge.dataset.v;
-        if ((edgeU === u && edgeV === v) || (edgeU === v && edgeV === u)) {
-          edge.classList.add('highlighted');
-          break;
-        }
-      }
-    }
+  if (playerHops === optimalHops) {
+    score.solved++;
+    updateStats();
+    showToast(`✓ Optimal! ${optimalHops} hop${optimalHops !== 1 ? 's' : ''} — perfect path`, 'success', 4000);
+    nextLevelBtn.style.display  = 'inline-flex';
+    restartBtn.style.display    = 'inline-flex';
+    showPathBtn.style.display   = 'none';
+  } else {
+    if (!levelAttempted) { score.failed++; updateStats(); }
+    showToast(`✕ Not optimal — your path: ${playerHops} hops, best: ${optimalHops} hops`, 'error', 4000);
+    showPathBtn.style.display   = 'inline-flex';
+    nextLevelBtn.style.display  = 'inline-flex';
+    restartBtn.style.display    = 'inline-flex';
+  }
+  levelAttempted = true;
+}
 
-    function reset() {
-      path = [];
-      Object.values(nodeElements).forEach(node => {
-        node.classList.remove('selected');
-      });
-      
-      svg.querySelectorAll('.edge').forEach(edge => {
-        edge.classList.remove('highlighted');
-      });
-      
-      // Restore start/end styling
-      if (currentGraph) {
-        if (nodeElements[currentGraph.start]) nodeElements[currentGraph.start].classList.add('start');
-        if (nodeElements[currentGraph.end]) nodeElements[currentGraph.end].classList.add('end');
-      }
-      
-      showPathBtn.style.display = "none";
-      nextLevelBtn.style.display = "none";
-      showingSolution = false;
-    }
+function showSolution() {
+  if (!currentGraph?.shortestPath) return;
+  score.hints++;
+  updateStats();
+  reset(false);
+  animatePath(currentGraph.shortestPath, 'highlighted');
+  nextLevelBtn.style.display = 'inline-flex';
+  restartBtn.style.display   = 'inline-flex';
+  showToast(`Solution: ${currentGraph.shortestPath.join(' → ')}`, 'info', 5000);
+}
 
-    function nextLevel() {
-      currentLevel++;
-      const generator = new GraphGenerator();
-      const newGraph = generator.generateLevel(currentLevel);
-      drawLevel(newGraph);
-    }
+function animatePath(pathArr, cls) {
+  let i = 0;
+  const tick = setInterval(() => {
+    if (i >= pathArr.length) { clearInterval(tick); return; }
+    const name = pathArr[i];
+    applyNodeClass(name, cls === 'player-path' ? 'selected' : 'selected');
+    if (i > 0) highlightEdgeBetween(pathArr[i - 1], name, cls);
+    i++;
+  }, 380);
+}
 
-    function restart() {
-      currentLevel = 1;
-      const generator = new GraphGenerator();
-      const newGraph = generator.generateLevel(currentLevel);
-      drawLevel(newGraph);
-    }
+function reset(clearButtons = true) {
+  playerPath = [];
+  levelAttempted = false;
+  updatePathOverlay();
 
-    // --- Event Listeners ---
-    
-    submitBtn.addEventListener('click', submitPath);
-    resetBtn.addEventListener('click', reset);
-    showPathBtn.addEventListener('click', showSolution);
-    nextLevelBtn.addEventListener('click', nextLevel);
-    restartBtn.addEventListener('click', restart);
+  // Remove all dynamic node classes
+  Object.keys(nodeElements).forEach(name => {
+    removeNodeClass(name, 'selected');
+    removeNodeClass(name, 'invalid-flash');
+  });
 
-    // --- Initialize ---
-    
-    function initialize() {
-      const generator = new GraphGenerator();
-      const initialGraph = generator.generateLevel(currentLevel);
-      drawLevel(initialGraph);
-    }
+  // Re-apply start/end
+  if (currentGraph) {
+    applyNodeClass(currentGraph.start, 'start');
+    applyNodeClass(currentGraph.end, 'end');
+  }
 
-    initialize();
+  clearEdgeClass('highlighted');
+  clearEdgeClass('player-path');
+
+  if (clearButtons) {
+    showPathBtn.style.display  = 'none';
+    nextLevelBtn.style.display = 'none';
+    restartBtn.style.display   = 'none';
+  }
+}
+
+function nextLevel() {
+  currentLevel++;
+  const gen = new GraphGenerator(getLevelParams(currentLevel).seed);
+  drawLevel(gen.generateLevel(currentLevel));
+}
+
+function restartGame() {
+  currentLevel = 1;
+  score.solved = 0; score.failed = 0; score.hints = 0;
+  updateStats();
+  const gen = new GraphGenerator(getLevelParams(1).seed);
+  drawLevel(gen.generateLevel(1));
+}
+
+function updateStats() {
+  statSolved.textContent = score.solved;
+  statFailed.textContent = score.failed;
+  statHints.textContent  = score.hints;
+}
+
+// ─────────────────────────────────────────────
+//  EVENT LISTENERS
+// ─────────────────────────────────────────────
+
+submitBtn.addEventListener('click', submitPath);
+resetBtn.addEventListener('click', () => reset(true));
+showPathBtn.addEventListener('click', showSolution);
+nextLevelBtn.addEventListener('click', nextLevel);
+restartBtn.addEventListener('click', restartGame);
+
+// ─────────────────────────────────────────────
+//  INITIALIZE
+// ─────────────────────────────────────────────
+
+(function init() {
+  const params = getLevelParams(1);
+  const gen = new GraphGenerator(params.seed);
+  drawLevel(gen.generateLevel(1));
+})();
