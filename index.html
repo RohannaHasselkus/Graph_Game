@@ -4,34 +4,119 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Shortest Path Puzzle</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+
+  <!-- Custom Toast Notification -->
+  <div id="toast" class="toast" aria-live="polite">
+    <span id="toastIcon" class="toast-icon"></span>
+    <span id="toastMsg" class="toast-msg"></span>
+  </div>
+
   <header>
-    <h1 id="levelTitle">Shortest Path Puzzle</h1>
-    <h2 id="instruction">Click nodes to build a path</h2>
-    <div class="difficulty-info" id="difficultyInfo">Loading...</div>
+    <div class="header-left">
+      <div class="logo">PATHFIND</div>
+      <div class="level-badge" id="levelBadge">LVL 1</div>
+    </div>
+    <div class="header-center">
+      <h2 id="instruction">Select the shortest path</h2>
+      <div class="route-display" id="routeDisplay">
+        <span id="startLabel" class="route-node start-label">—</span>
+        <span class="route-arrow">⟶</span>
+        <span id="endLabel" class="route-node end-label">—</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="stat-block">
+        <div class="stat-value" id="statSolved">0</div>
+        <div class="stat-label">Solved</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-value" id="statFailed">0</div>
+        <div class="stat-label">Failed</div>
+      </div>
+      <div class="stat-block">
+        <div class="stat-value" id="statHints">0</div>
+        <div class="stat-label">Hints</div>
+      </div>
+    </div>
   </header>
+
+  <div class="meta-bar" id="metaBar">
+    <span id="metaNodes">— nodes</span>
+    <span class="meta-sep">·</span>
+    <span id="metaEdges">— edges</span>
+    <span class="meta-sep">·</span>
+    <span id="metaDifficulty">difficulty —</span>
+    <span class="meta-sep">·</span>
+    <span id="metaSolution">solution: — hops</span>
+  </div>
 
   <div id="network-wrap">
     <svg id="graph">
       <defs>
-        <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
-          <path d="M0,0 L0,6 L9,3 z" fill="#7c7f86" />
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4a5060" />
         </marker>
+        <marker id="arrow-highlight" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L8,3 z" fill="#ffb86b" />
+        </marker>
+        <marker id="arrow-player" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+          <path d="M0,0 L0,6 L8,3 z" fill="#6bd7ff" />
+        </marker>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+          <feMerge>
+            <feMergeNode in="coloredBlur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
+        <filter id="glow-strong">
+          <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+          <feMerge>
+            <feMergeNode in="coloredBlur"/>
+            <feMergeNode in="SourceGraphic"/>
+          </feMerge>
+        </filter>
       </defs>
     </svg>
+
+    <!-- Path display overlay -->
+    <div class="path-overlay" id="pathOverlay">
+      <span class="path-label">Your path:</span>
+      <span id="pathDisplay" class="path-display">—</span>
+    </div>
   </div>
 
   <div id="controls">
-    <button id="submitBtn">Submit Path</button>
-    <button id="resetBtn">Reset</button>
-    <button id="showPathBtn" style="display:none;">Show Solution</button>
-    <button id="nextLevelBtn" style="display:none;">Next Level</button>
-    <button id="restartBtn" style="display:none;">Restart Game</button>
+    <button id="submitBtn" class="btn btn-primary">
+      <span class="btn-icon">⏎</span> Submit Path
+    </button>
+    <button id="resetBtn" class="btn btn-ghost">
+      <span class="btn-icon">↺</span> Reset
+    </button>
+    <button id="showPathBtn" class="btn btn-hint" style="display:none;">
+      <span class="btn-icon">💡</span> Show Solution
+    </button>
+    <button id="nextLevelBtn" class="btn btn-next" style="display:none;">
+      <span class="btn-icon">→</span> Next Level
+    </button>
+    <button id="restartBtn" class="btn btn-restart" style="display:none;">
+      <span class="btn-icon">⟳</span> Restart
+    </button>
   </div>
 
-  <footer>Click to select nodes • Build the shortest path from start to end</footer>
+  <footer>
+    <span>Click nodes to build a path</span>
+    <span class="footer-sep">·</span>
+    <span>Click last node to undo</span>
+    <span class="footer-sep">·</span>
+    <span>Find fewest hops from start to end</span>
+  </footer>
 
   <script src="game.js"></script>
 </body>
